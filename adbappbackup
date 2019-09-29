@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import pickle
 import subprocess
 
 backup_path = "~/.adbappbackup"
@@ -14,6 +15,18 @@ local_data_list = None
 
 # TODO: if more than one device: prompt selection; if not: remember device id in case this changes
 adb_device = None
+
+class PackageInfo:
+    def __init__(self, package):
+        self.package = package
+    def collect(self):
+        self.apks = adb(["shell", "cmd", "package", "path", self.package]).decode().split("\n")
+    def get_apks(self, base_dir):
+        apks = []
+        for apk in self.apks:
+            if apk.startswith("package:"):
+                apks.append("{}/{}".format(base_dir, apk[len("package:"):]))
+        return apks
 
 def run_cmd(cmd):
     debug_out = ">"
@@ -30,16 +43,18 @@ def adb(cmd):
         cmd = ["-s", adb_device] + cmd
     return run_cmd(["adb"] + cmd)
 
-def adb_pull(source, target):
+def adb_pull(target):
     global backup_path
     # TODO: backup path: include device ID and timestamp?
-    out = "{}/{}".format(backup_path, target)
+    out = "{}/{}".format(backup_path, os.path.dirname(target))
     run_cmd(["mkdir", "-p", out])
-    adb(["pull"] + [source, out])
+    adb(["pull"] + [target, out])
 
-def adb_push(source, target):
+def adb_push(target):
     global backup_path
-    adb(["push"] + [source, target])
+    if not target.startswith(backup_path):
+        raise Exception("Internal error")
+    adb(["push"] + [target, "/{}".format(target[len(backup_path):])])
 
 def permission_ensure():
     global is_adb_root
@@ -64,7 +79,7 @@ def get_device_appdata_list():
 def get_local_appdata_list():
     global local_appdata_list, backup_path
     if local_appdata_list == None:
-        local_appdata_list = local_list_dir("{}/app".format(backup_path))
+        local_appdata_list = local_list_dir("{}/data/app".format(backup_path))
     return local_appdata_list
 
 def get_appdata(appdata_list, package):
@@ -82,7 +97,7 @@ def get_device_data_list():
 def get_local_data_list():
     global local_data_list, backup_path
     if local_data_list == None:
-        local_data_list = local_list_dir("{}/data".format(backup_path))
+        local_data_list = local_list_dir("{}/data/data".format(backup_path))
     return local_data_list
 
 def get_data(data_list, package):
@@ -91,37 +106,35 @@ def get_data(data_list, package):
             return data
     raise Exception("No data found for {}".format(package))
 
-def get_local_base_apk(appdata):
-    return run_cmd(["find", appdata, "-name", "base.apk"]).decode().split("\n")[0]
-
-# TODO?
-#def get_local_apks(appdata):
-#    return run_cmd(["find", appdata, "-name", "*.apk"]).decode().split("\n")
-
 def backup_app(packages):
+    global backup_path
     # TODO versionize backups
     permission_ensure()
     appdata_list = get_device_appdata_list()
     data_list = get_device_data_list()
     for package in packages:
+        package_info = PackageInfo(package)
+        package_info.collect()
         appdata = get_appdata(appdata_list, package)
         data = get_data(data_list, package)
-        adb_pull(data, "data/")
-        adb_pull(appdata, "app/")
+        adb_pull(data)
+        adb_pull(appdata)
+        with open("{}/package_info".format(backup_path), "wb") as pif:
+            pickle.dump(package_info, pif)
 
 def restore_app(packages):
+    global backup_path
     permission_ensure()
     appdata_list = get_local_appdata_list()
     data_list = get_local_data_list()
     for package in packages:
+        with open("{}/package_info".format(backup_path), "rb") as pif:
+            package_info = pickle.load(pif)
         appdata = get_appdata(appdata_list, package)
         data = get_data(data_list, package)
-        # TODO we might need more than base apk?
-        base_apk = get_local_base_apk(appdata)
-        adb(["install", base_apk])
-        #adb(["install"] + get_local_apks(appdata)) # TODO?
-        # TODO what if data dir already exists? Better not rm -rf, let's be a coward here -> maybe adb uninstall package
-        adb_push(data, "/data/data/")
+        # TODO uninstall if already exists to make sure we don't have any conflicting data
+        adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
+        adb_push(data)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backup apps + data using adb (root)")
