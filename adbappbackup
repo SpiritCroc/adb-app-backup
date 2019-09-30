@@ -10,6 +10,7 @@ backup_path = "~/.adbappbackup"
 is_adb_root = False
 device_appdata_list = None
 device_data_list = None
+device_tmp_dir_created = False
 local_appdata_list = None
 local_data_list = None
 
@@ -48,13 +49,34 @@ def adb_pull(target):
     # TODO: backup path: include device ID and timestamp?
     out = "{}/{}".format(backup_path, os.path.dirname(target))
     run_cmd(["mkdir", "-p", out])
-    adb(["pull"] + [target, out])
+    adb(["pull", target, out])
 
-def adb_push(target):
+def adb_push(local_target):
+    target = remote_file_from_backup_file(local_target)
+    adb(["push", target, "/{}".format(target)])
+
+def get_device_tmp_dir():
+    global device_tmp_dir_created
+    device_tmp_dir = "/sdcard/.adbappbackup"
+    if not device_tmp_dir_created:
+        adb(["shell", "mkdir", "-p", device_tmp_dir])
+        device_tmp_dir_created = True
+    return device_tmp_dir
+
+def remote_file_from_backup_file(local_target):
     global backup_path
-    if not target.startswith(backup_path):
+    if not local_target.startswith(backup_path):
         raise Exception("Internal error")
-    adb(["push"] + [target, "/{}".format(target[len(backup_path):])])
+    return local_target[len(backup_path):]
+
+def adb_push_indirect(local_target):
+    target = remote_file_from_backup_file(local_target)
+    device_tmp_dir = get_device_tmp_dir()
+    target_base = os.path.basename(target)
+    target_dir = os.path.dirname(target)
+    # TODO clean up device_tmp_dir?
+    adb(["push", local_target, device_tmp_dir])
+    adb(["shell", "mv", "{}/{}".format(device_tmp_dir, target_base), target_dir])
 
 def permission_ensure():
     global is_adb_root
@@ -106,6 +128,12 @@ def get_data(data_list, package):
             return data
     raise Exception("No data found for {}".format(package))
 
+def get_app_uid(package):
+    dumpsys = adb(["shell", "dumpsys", "package", package]).decode()
+    for line in dumpsys.split('\n'):
+        if "userId=" in line:
+            return int(line[line.index("=")+1:])
+
 def backup_app(packages):
     global backup_path
     # TODO versionize backups
@@ -134,7 +162,20 @@ def restore_app(packages):
         data = get_data(data_list, package)
         # TODO uninstall if already exists to make sure we don't have any conflicting data
         adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
-        adb_push(data)
+        adb_push_indirect(data)
+        # Remove cache: might cause troubles and should not be necessary
+        remote_data = remote_file_from_backup_file(data)
+        try:
+            adb(["shell", "rm", "-r", "{}/cache".format(remote_data)])
+        except subprocess.CalledProcessError:
+            pass
+        try:
+            adb(["shell", "rm", "-r", "{}/code_cache".format(remote_data)])
+        except subprocess.CalledProcessError:
+            pass
+        # Fix uid
+        uid = get_app_uid(package)
+        adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backup apps + data using adb (root)")
