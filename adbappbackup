@@ -4,8 +4,12 @@ import argparse
 import os
 import pickle
 import subprocess
+import sys
 
+backup_base_path = "~/.adbappbackup"
+# TODO
 backup_path = "~/.adbappbackup"
+#backup_path = None
 
 is_adb_root = False
 device_appdata_list = None
@@ -14,8 +18,8 @@ device_tmp_dir_created = False
 local_appdata_list = None
 local_data_list = None
 
-# TODO: if more than one device: prompt selection; if not: remember device id in case this changes
 adb_device = None
+adb_transport_id = None
 
 class PackageInfo:
     def __init__(self, package):
@@ -29,6 +33,11 @@ class PackageInfo:
                 apks.append("{}/{}".format(base_dir, apk[len("package:"):]))
         return apks
 
+def prepare_backup_base_path(base_path):
+    global backup_base_path
+    # TODO + use
+    backup_base_path = base_path
+
 def run_cmd(cmd):
     debug_out = ">"
     for c in cmd:
@@ -36,13 +45,58 @@ def run_cmd(cmd):
     print(debug_out)
     return subprocess.check_output(cmd)
 
+def load_adb_device():
+    global adb_device, adb_transport_id
+    if adb_transport_id != None:
+        return
+    devices = run_cmd(["adb", "devices", "-l"]).decode().split("\n")
+    available = []
+    def get_attr(line, attr):
+        start_index = line.index(attr + ":") + len(attr) + 1
+        try:
+            end_index = line.index(" ", start_index)
+        except:
+            end_index = None
+        return line[start_index : end_index]
+    for device in devices:
+        if "List of devices attached" in device:
+            continue
+        try:
+            a = dict()
+            a["serial"] = device[0:device.index(" ")]
+            a["product"] = get_attr(device, "product")
+            a["model"] = get_attr(device, "model")
+            a["transport_id"] = get_attr(device, "transport_id")
+            if adb_device == None or adb_device == serial:
+                available.append(a)
+        except:
+            pass
+    if len(available) == 0:
+        print("No device connected to adb")
+        sys.exit(1)
+    if len(available) == 1:
+        adb_transport_id = available[0]["transport_id"]
+        return
+    selection = None
+    while selection == None:
+        for i in range(0, len(available)):
+            print("{} {} ({})".format(i+1, available[i]["model"], available[i]["product"]))
+        user_in = input("Select device (1-{}): ".format(len(available)))
+        try:
+            user_in = int(user_in)
+            if user_in > 0 and user_in <= len(available):
+                selection = user_in - 1
+        except:
+            pass
+    adb_transport_id = available[selection]["transport_id"]
+
 def adb(cmd):
-    global adb_device
+    global adb_transport_id
     if not isinstance(cmd, list):
         cmd = [cmd]
-    if adb_device != None:
-        cmd = ["-s", adb_device] + cmd
-    return run_cmd(["adb"] + cmd)
+    if adb_transport_id == None:
+        load_adb_device()
+    return run_cmd(["adb", "-t", adb_transport_id] + cmd)
 
 def adb_pull(target):
     global backup_path
@@ -177,13 +231,16 @@ def restore_app(packages):
         uid = get_app_uid(package)
         adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
 
+def list_backups():
+    print("TODO")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backup apps + data using adb (root)")
     parser.add_argument("--device", type=str, nargs=1, metavar="SERIAL", help="Device serial (see `adb devices`)")
     parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_path])
     parser.add_argument("--backup", action='store_const', const=True, default=False)
     parser.add_argument("--restore", action='store_const', const=True, default=False)
-    parser.add_argument("package", type=str, nargs='+')
+    parser.add_argument("package", type=str, nargs='*')
     args = parser.parse_args()
     backup_path = os.path.expanduser(args.backup_path[0])
     done_anything = False
@@ -196,4 +253,4 @@ if __name__ == "__main__":
         restore_app(args.package)
         done_anything = True
     if not done_anything:
-        parser.print_help()
+        list_backups()
