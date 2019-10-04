@@ -295,8 +295,8 @@ def backup_app(packages):
             adb_pull(appdata, backup_path)
             with open("{}/package_info".format(backup_path), "wb") as pif:
                 pickle.dump(package_info, pif)
-        except:
-            print("Backup of {} failed".format(packages), file=sys.stderr)
+        except subprocess.CalledProcessError:
+            print("Backup of {} failed".format(package), file=sys.stderr)
             traceback.print_exc()
 
 def restore_app(packages, backup_device = None, latest = False):
@@ -329,8 +329,8 @@ def restore_app(packages, backup_device = None, latest = False):
             # Fix uid
             uid = get_app_uid(package)
             adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
-        except:
-            print("Restore of {} failed".format(packages), file=sys.stderr)
+        except subprocess.CalledProcessError:
+            print("Restore of {} failed".format(package), file=sys.stderr)
             traceback.print_exc()
 
 def list_backups_for_device(device, packages):
