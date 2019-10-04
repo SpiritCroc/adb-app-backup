@@ -5,6 +5,7 @@ import os
 import pickle
 import subprocess
 import sys
+import traceback
 import time
 
 from datetime import datetime
@@ -275,42 +276,50 @@ def backup_app(packages):
     appdata_list = get_device_appdata_list()
     data_list = get_device_data_list()
     for package in packages:
-        backup_path = get_new_backup_revision_path(package)
-        package_info = PackageInfo(package)
-        package_info.collect()
-        appdata = get_appdata(appdata_list, package)
-        data = get_data(data_list, package)
-        adb_pull(data, backup_path)
-        adb_pull(appdata, backup_path)
-        with open("{}/package_info".format(backup_path), "wb") as pif:
-            pickle.dump(package_info, pif)
+        try:
+            backup_path = get_new_backup_revision_path(package)
+            package_info = PackageInfo(package)
+            package_info.collect()
+            appdata = get_appdata(appdata_list, package)
+            data = get_data(data_list, package)
+            adb_pull(data, backup_path)
+            adb_pull(appdata, backup_path)
+            with open("{}/package_info".format(backup_path), "wb") as pif:
+                pickle.dump(package_info, pif)
+        except:
+            print("Backup of {} failed".format(packages), file=sys.stderr)
+            traceback.print_exc()
 
 def restore_app(packages, backup_device = None):
     permission_ensure()
     for package in packages:
-        backup_path = select_backup_revision_path(package, backup_device)
-        appdata_list = get_local_appdata_list(backup_path)
-        data_list = get_local_data_list(backup_path)
-        with open("{}/package_info".format(backup_path), "rb") as pif:
-            package_info = pickle.load(pif)
-        appdata = get_appdata(appdata_list, package)
-        data = get_data(data_list, package)
-        # TODO uninstall if already exists to make sure we don't have any conflicting data
-        adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
-        adb_push_indirect(data, backup_path)
-        # Remove cache: might cause troubles and should not be necessary
-        remote_data = remote_file_from_backup_file(data, backup_path)
         try:
-            adb(["shell", "rm", "-r", "{}/cache".format(remote_data)])
-        except subprocess.CalledProcessError:
-            pass
-        try:
-            adb(["shell", "rm", "-r", "{}/code_cache".format(remote_data)])
-        except subprocess.CalledProcessError:
-            pass
-        # Fix uid
-        uid = get_app_uid(package)
-        adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
+            backup_path = select_backup_revision_path(package, backup_device)
+            appdata_list = get_local_appdata_list(backup_path)
+            data_list = get_local_data_list(backup_path)
+            with open("{}/package_info".format(backup_path), "rb") as pif:
+                package_info = pickle.load(pif)
+            appdata = get_appdata(appdata_list, package)
+            data = get_data(data_list, package)
+            # TODO uninstall if already exists to make sure we don't have any conflicting data
+            adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
+            adb_push_indirect(data, backup_path)
+            # Remove cache: might cause troubles and should not be necessary
+            remote_data = remote_file_from_backup_file(data, backup_path)
+            try:
+                adb(["shell", "rm", "-r", "{}/cache".format(remote_data)])
+            except subprocess.CalledProcessError:
+                pass
+            try:
+                adb(["shell", "rm", "-r", "{}/code_cache".format(remote_data)])
+            except subprocess.CalledProcessError:
+                pass
+            # Fix uid
+            uid = get_app_uid(package)
+            adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
+        except:
+            print("Restore of {} failed".format(packages), file=sys.stderr)
+            traceback.print_exc()
 
 def list_backups_for_device(device, packages):
     available_packages = get_backed_up_packages(device)
@@ -362,8 +371,14 @@ if __name__ == "__main__":
 
     if args.package_list[0] != None:
         with open(os.path.expanduser(args.package_list[0]), "r") as infile:
-            packages_from_file = infile.read().split("\n")
-        args.package += packages_from_file
+            for package in infile.read().split("\n"):
+                if len(package) == 0:
+                    continue
+                if package[-1] == '\r':
+                    package = package[0:-1]
+                if len(package) == 0:
+                    continue
+                args.package.append(package)
 
     # Backup
     if args.backup:
