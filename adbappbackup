@@ -95,6 +95,15 @@ def select_backup_revision_path(package, device = None):
                 pass
     return "{}/{}".format(backup_path, paths[selection])
 
+def latest_backup_revision_path(package, device = None):
+    backup_path = get_backup_path(package, device)
+    # revisions are sorted
+    paths = get_backup_revisions(device, package)
+    if len(paths) == 0:
+        print("No backup found for package \"{}\" and device \"{}\"".format(package, get_effective_device(device)))
+        sys.exit(1)
+    return "{}/{}".format(backup_path, paths[-1])
+
 def get_new_backup_revision_path(package):
     backup_path = get_backup_path(package)
     timeid = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -290,11 +299,14 @@ def backup_app(packages):
             print("Backup of {} failed".format(packages), file=sys.stderr)
             traceback.print_exc()
 
-def restore_app(packages, backup_device = None):
+def restore_app(packages, backup_device = None, latest = False):
     permission_ensure()
     for package in packages:
         try:
-            backup_path = select_backup_revision_path(package, backup_device)
+            if latest:
+                backup_path = latest_backup_revision_path(package, backup_device)
+            else:
+                backup_path = select_backup_revision_path(package, backup_device)
             appdata_list = get_local_appdata_list(backup_path)
             data_list = get_local_data_list(backup_path)
             with open("{}/package_info".format(backup_path), "rb") as pif:
@@ -360,6 +372,7 @@ if __name__ == "__main__":
     parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_base_path])
     parser.add_argument("--backup", action='store_const', const=True, default=False)
     parser.add_argument("--restore", action='store_const', const=True, default=False)
+    parser.add_argument("--latest", action='store_const', const=True, default=False, help="Automatically use the latest backup")
     parser.add_argument("--list_packages", action='store_const', const=True, default=False, help="Output a list of installed packages available for backup. Can be used to create lists for --package_list")
     parser.add_argument("--package_list", metavar="FILE", type=str, nargs=1, default=[None], help="Read packages from FILE")
     parser.add_argument("package", type=str, nargs='*')
@@ -387,7 +400,7 @@ if __name__ == "__main__":
 
     # Restore
     if args.restore:
-        restore_app(args.package, args.backup_device[0])
+        restore_app(args.package, args.backup_device[0], latest=args.latest)
         done_anything = True
 
     if args.list_packages:
