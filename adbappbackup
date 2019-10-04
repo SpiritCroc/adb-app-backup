@@ -103,7 +103,7 @@ def run_cmd(cmd):
     debug_out = ">"
     for c in cmd:
         debug_out += " " + c
-    print(debug_out)
+    print(debug_out, file=sys.stderr)
     return subprocess.check_output(cmd)
 
 def load_adb_device():
@@ -164,7 +164,6 @@ def adb(cmd):
     return run_cmd(["adb", "-t", adb_transport_id] + cmd)
 
 def adb_pull(target, backup_path):
-    # TODO: backup path: include device ID and timestamp?
     out = "{}/{}".format(backup_path, os.path.dirname(target))
     run_cmd(["mkdir", "-p", out])
     adb(["pull", target, out])
@@ -231,6 +230,10 @@ def get_device_appdata_list():
 def get_local_appdata_list(backup_path):
     return local_list_dir("{}/data/app".format(backup_path))
 
+def get_package_from_appdata(appdata):
+    appdata = os.path.basename(appdata)
+    return appdata[0:appdata.index("-")]
+
 def get_appdata(appdata_list, package):
     for appdata in appdata_list:
         if os.path.basename(appdata).startswith("{}-".format(package)):
@@ -258,8 +261,16 @@ def get_app_uid(package):
         if "userId=" in line:
             return int(line[line.index("=")+1:])
 
+def get_installed_packages():
+    # That's not all installed packages, but those that we support backin up right now
+    appdata_list = get_device_appdata_list()
+    result = []
+    for appdata in appdata_list:
+        if appdata != "":
+            result.append(get_package_from_appdata(appdata))
+    return result
+
 def backup_app(packages):
-    # TODO versionize backups
     permission_ensure()
     appdata_list = get_device_appdata_list()
     data_list = get_device_data_list()
@@ -314,6 +325,12 @@ def list_backups_for_device(device, packages):
         for revision in revisions:
             print("- {}".format(revision))
 
+def list_installed_packages():
+    permission_ensure()
+    packages = get_installed_packages()
+    for package in sorted(packages):
+        print(package)
+
 def list_backups(device = None, packages = []):
     if device != None:
         list_backups_for_device(device, packages)
@@ -334,12 +351,19 @@ if __name__ == "__main__":
     parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_base_path])
     parser.add_argument("--backup", action='store_const', const=True, default=False)
     parser.add_argument("--restore", action='store_const', const=True, default=False)
+    parser.add_argument("--list_packages", action='store_const', const=True, default=False, help="Output a list of installed packages available for backup. Can be used to create lists for --package_list")
+    parser.add_argument("--package_list", metavar="FILE", type=str, nargs=1, default=[None], help="Read packages from FILE")
     parser.add_argument("package", type=str, nargs='*')
     args = parser.parse_args()
     backup_base_path = os.path.expanduser(args.backup_path[0])
     done_anything = False
     if args.device[0] != None:
         adb_device = args.device[0]
+
+    if args.package_list[0] != None:
+        with open(os.path.expanduser(args.package_list[0]), "r") as infile:
+            packages_from_file = infile.read().split("\n")
+        args.package += packages_from_file
 
     # Backup
     if args.backup:
@@ -349,6 +373,10 @@ if __name__ == "__main__":
     # Restore
     if args.restore:
         restore_app(args.package, args.backup_device[0])
+        done_anything = True
+
+    if args.list_packages:
+        list_installed_packages()
         done_anything = True
 
     # List
