@@ -1,4 +1,4 @@
 # ADB app backup
 
 Backup apps to your PC using adb root.
-No extra apps and app root required.
+No extra apps or app root required.
