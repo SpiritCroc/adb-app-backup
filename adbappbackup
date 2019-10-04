@@ -5,18 +5,16 @@ import os
 import pickle
 import subprocess
 import sys
+import time
+
+from datetime import datetime
 
 backup_base_path = "~/.adbappbackup"
-# TODO
-backup_path = "~/.adbappbackup"
-#backup_path = None
 
 is_adb_root = False
 device_appdata_list = None
 device_data_list = None
 device_tmp_dir_created = False
-local_appdata_list = None
-local_data_list = None
 
 adb_device = None
 adb_transport_id = None
@@ -33,10 +31,53 @@ class PackageInfo:
                 apks.append("{}/{}".format(base_dir, apk[len("package:"):]))
         return apks
 
-def prepare_backup_base_path(base_path):
-    global backup_base_path
-    # TODO + use
-    backup_base_path = base_path
+def get_effective_device(device):
+    global adb_device
+    if adb_device == None:
+        load_adb_device()
+    if device == None:
+        device = adb_device
+    if device == None:
+        raise Exception("Internal error")
+    return device
+
+def get_backup_device_path(device = None):
+    device = get_effective_device(device)
+    return "{}/{}".format(backup_base_path, device)
+
+def get_backup_path(package, device = None):
+    return "{}/{}".format(get_backup_device_path(device), package)
+
+def select_backup_revision_path(package, device = None):
+    backup_path = get_backup_path(package, device)
+    try:
+        paths = os.listdir(backup_path)
+    except FileNotFoundError:
+        paths = []
+    if len(paths) == 0:
+        print("No backup found for package \"{}\" and device \"{}\"".format(package, get_effective_device(device)))
+        sys.exit(1)
+    if len(paths) == 1:
+        selection = 0
+    else:
+        selection = None
+        while selection == None:
+            print("Available backups for {}:".format(package))
+            for i in range(0, len(paths)):
+                print("{} {}".format(i+1, paths[i]))
+            user_in = input("Select backup (1-{}): ".format(len(paths)))
+            try:
+                user_in = int(user_in)
+                if user_in > 0 and user_in <= len(paths):
+                    selection = user_in - 1
+            except:
+                pass
+    return "{}/{}".format(backup_path, paths[selection])
+
+def get_new_backup_revision_path(package):
+    backup_path = get_backup_path(package)
+    timeid = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return "{}/{}".format(backup_path, timeid)
 
 def run_cmd(cmd):
     debug_out = ">"
@@ -67,28 +108,32 @@ def load_adb_device():
             a["product"] = get_attr(device, "product")
             a["model"] = get_attr(device, "model")
             a["transport_id"] = get_attr(device, "transport_id")
-            if adb_device == None or adb_device == serial:
+            if adb_device == None or adb_device == a["serial"]:
                 available.append(a)
         except:
             pass
     if len(available) == 0:
-        print("No device connected to adb")
-        sys.exit(1)
+        raise Exception("No device connected to adb")
     if len(available) == 1:
-        adb_transport_id = available[0]["transport_id"]
-        return
-    selection = None
-    while selection == None:
-        for i in range(0, len(available)):
-            print("{} {} ({})".format(i+1, available[i]["model"], available[i]["product"]))
-        user_in = input("Select device (1-{}): ".format(len(available)))
-        try:
-            user_in = int(user_in)
-            if user_in > 0 and user_in <= len(available):
-                selection = user_in - 1
-        except:
-            pass
+        selection = 0
+    else:
+        selection = None
+        while selection == None:
+            for i in range(0, len(available)):
+                print("{} {} ({})".format(i+1, available[i]["model"], available[i]["product"]))
+            user_in = input("Select device (1-{}): ".format(len(available)))
+            try:
+                user_in = int(user_in)
+                if user_in > 0 and user_in <= len(available):
+                    selection = user_in - 1
+            except:
+                pass
     adb_transport_id = available[selection]["transport_id"]
+    if adb_transport_id == None:
+        raise Exception("Could not get adb transport id")
+    adb_device = available[selection]["serial"]
+    if adb_device == None:
+        raise Exception("Could not get adb device serial")
 
 def adb(cmd):
     global adb_transport_id
@@ -98,15 +143,14 @@ def adb(cmd):
         load_adb_device()
     return run_cmd(["adb", "-t", adb_transport_id] + cmd)
 
-def adb_pull(target):
-    global backup_path
+def adb_pull(target, backup_path):
     # TODO: backup path: include device ID and timestamp?
     out = "{}/{}".format(backup_path, os.path.dirname(target))
     run_cmd(["mkdir", "-p", out])
     adb(["pull", target, out])
 
-def adb_push(local_target):
-    target = remote_file_from_backup_file(local_target)
+def adb_push(local_target, backup_path):
+    target = remote_file_from_backup_file(local_target, backup_path)
     adb(["push", target, "/{}".format(target)])
 
 def get_device_tmp_dir():
@@ -117,14 +161,13 @@ def get_device_tmp_dir():
         device_tmp_dir_created = True
     return device_tmp_dir
 
-def remote_file_from_backup_file(local_target):
-    global backup_path
+def remote_file_from_backup_file(local_target, backup_path):
     if not local_target.startswith(backup_path):
         raise Exception("Internal error")
     return local_target[len(backup_path):]
 
-def adb_push_indirect(local_target):
-    target = remote_file_from_backup_file(local_target)
+def adb_push_indirect(local_target, backup_path):
+    target = remote_file_from_backup_file(local_target, backup_path)
     device_tmp_dir = get_device_tmp_dir()
     target_base = os.path.basename(target)
     target_dir = os.path.dirname(target)
@@ -133,10 +176,23 @@ def adb_push_indirect(local_target):
     adb(["shell", "mv", "{}/{}".format(device_tmp_dir, target_base), target_dir])
 
 def permission_ensure():
-    global is_adb_root
+    global is_adb_root, adb_transport_id
     if not is_adb_root:
         adb("root")
         is_adb_root = True
+        # Reload transport id
+        adb_transport_id = None
+        # adb devices -l might not see our device immediately
+        for i in range(0, 10):
+            time.sleep(1)
+            try:
+                load_adb_device()
+                break
+            except:
+                pass
+        if adb_transport_id == None:
+            # One final try
+            load_adb_device()
 
 def adb_list_dir(path):
     # ls would work too, but find is more flexible and returns absolute paths
@@ -152,11 +208,8 @@ def get_device_appdata_list():
         device_appdata_list = adb_list_dir("/data/app/")
     return device_appdata_list
 
-def get_local_appdata_list():
-    global local_appdata_list, backup_path
-    if local_appdata_list == None:
-        local_appdata_list = local_list_dir("{}/data/app".format(backup_path))
-    return local_appdata_list
+def get_local_appdata_list(backup_path):
+    return local_list_dir("{}/data/app".format(backup_path))
 
 def get_appdata(appdata_list, package):
     for appdata in appdata_list:
@@ -170,11 +223,8 @@ def get_device_data_list():
         device_data_list = adb_list_dir("/data/data/")
     return device_data_list
 
-def get_local_data_list():
-    global local_data_list, backup_path
-    if local_data_list == None:
-        local_data_list = local_list_dir("{}/data/data".format(backup_path))
-    return local_data_list
+def get_local_data_list(backup_path):
+    return local_list_dir("{}/data/data".format(backup_path))
 
 def get_data(data_list, package):
     for data in data_list:
@@ -189,36 +239,36 @@ def get_app_uid(package):
             return int(line[line.index("=")+1:])
 
 def backup_app(packages):
-    global backup_path
     # TODO versionize backups
     permission_ensure()
     appdata_list = get_device_appdata_list()
     data_list = get_device_data_list()
     for package in packages:
+        backup_path = get_new_backup_revision_path(package)
         package_info = PackageInfo(package)
         package_info.collect()
         appdata = get_appdata(appdata_list, package)
         data = get_data(data_list, package)
-        adb_pull(data)
-        adb_pull(appdata)
+        adb_pull(data, backup_path)
+        adb_pull(appdata, backup_path)
         with open("{}/package_info".format(backup_path), "wb") as pif:
             pickle.dump(package_info, pif)
 
-def restore_app(packages):
-    global backup_path
+def restore_app(packages, backup_device = None):
     permission_ensure()
-    appdata_list = get_local_appdata_list()
-    data_list = get_local_data_list()
     for package in packages:
+        backup_path = select_backup_revision_path(package, backup_device)
+        appdata_list = get_local_appdata_list(backup_path)
+        data_list = get_local_data_list(backup_path)
         with open("{}/package_info".format(backup_path), "rb") as pif:
             package_info = pickle.load(pif)
         appdata = get_appdata(appdata_list, package)
         data = get_data(data_list, package)
         # TODO uninstall if already exists to make sure we don't have any conflicting data
         adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
-        adb_push_indirect(data)
+        adb_push_indirect(data, backup_path)
         # Remove cache: might cause troubles and should not be necessary
-        remote_data = remote_file_from_backup_file(data)
+        remote_data = remote_file_from_backup_file(data, backup_path)
         try:
             adb(["shell", "rm", "-r", "{}/cache".format(remote_data)])
         except subprocess.CalledProcessError:
@@ -237,20 +287,27 @@ def list_backups():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backup apps + data using adb (root)")
     parser.add_argument("--device", type=str, nargs=1, metavar="SERIAL", help="Device serial (see `adb devices`)")
-    parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_path])
+    parser.add_argument("--backup_device", type=str, nargs=1, metavar="SERIAL", help="Device serial for the backup. Set if you want to restore a backup from a different device", default=[None])
+    parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_base_path])
     parser.add_argument("--backup", action='store_const', const=True, default=False)
     parser.add_argument("--restore", action='store_const', const=True, default=False)
     parser.add_argument("package", type=str, nargs='*')
     args = parser.parse_args()
-    backup_path = os.path.expanduser(args.backup_path[0])
+    backup_base_path = os.path.expanduser(args.backup_path[0])
     done_anything = False
     if args.device != None:
         adb_device = args.device[0]
+
+    # Backup
     if args.backup:
         backup_app(args.package)
         done_anything = True
+
+    # Restore
     if args.restore:
-        restore_app(args.package)
+        restore_app(args.package, args.backup_device[0])
         done_anything = True
+
+    # List
     if not done_anything:
         list_backups()
