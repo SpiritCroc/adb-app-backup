@@ -313,7 +313,10 @@ def restore_app(packages, backup_device = None, latest = False):
                 package_info = pickle.load(pif)
             appdata = get_appdata(appdata_list, package)
             data = get_data(data_list, package)
-            # TODO uninstall if already exists to make sure we don't have any conflicting data
+            try:
+                adb(["uninstall", package])
+            except:
+                pass
             adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
             adb_push_indirect(data, backup_path)
             # Remove cache: might cause troubles and should not be necessary
