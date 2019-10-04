@@ -51,21 +51,21 @@ def get_backup_device_path(device = None, offline = False):
 def get_backed_up_devices():
     global backup_base_path
     try:
-        return os.listdir(backup_base_path)
+        return sorted(os.listdir(backup_base_path))
     except FileNotFoundError:
         return []
 
 def get_backed_up_packages(device):
     backup_device_path = get_backup_device_path(device, offline = True)
     try:
-        return os.listdir(backup_device_path)
+        return sorted(os.listdir(backup_device_path))
     except FileNotFoundError:
         return []
 
 def get_backup_revisions(device, package, offline = False):
     backup_path = get_backup_path(package, device, offline = offline)
     try:
-        return os.listdir(backup_path)
+        return sorted(os.listdir(backup_path))
     except FileNotFoundError:
         return []
 
