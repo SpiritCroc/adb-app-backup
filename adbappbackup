@@ -41,19 +41,39 @@ def get_effective_device(device):
         raise Exception("Internal error")
     return device
 
-def get_backup_device_path(device = None):
-    device = get_effective_device(device)
+def get_backup_device_path(device = None, offline = False):
+    global backup_base_path
+    if not offline:
+        device = get_effective_device(device)
     return "{}/{}".format(backup_base_path, device)
 
-def get_backup_path(package, device = None):
-    return "{}/{}".format(get_backup_device_path(device), package)
+def get_backed_up_devices():
+    global backup_base_path
+    try:
+        return os.listdir(backup_base_path)
+    except FileNotFoundError:
+        return []
+
+def get_backed_up_packages(device):
+    backup_device_path = get_backup_device_path(device, offline = True)
+    try:
+        return os.listdir(backup_device_path)
+    except FileNotFoundError:
+        return []
+
+def get_backup_revisions(device, package, offline = False):
+    backup_path = get_backup_path(package, device, offline = offline)
+    try:
+        return os.listdir(backup_path)
+    except FileNotFoundError:
+        return []
+
+def get_backup_path(package, device = None, offline = False):
+    return "{}/{}".format(get_backup_device_path(device, offline = offline), package)
 
 def select_backup_revision_path(package, device = None):
     backup_path = get_backup_path(package, device)
-    try:
-        paths = os.listdir(backup_path)
-    except FileNotFoundError:
-        paths = []
+    paths = get_backup_revisions(device, package)
     if len(paths) == 0:
         print("No backup found for package \"{}\" and device \"{}\"".format(package, get_effective_device(device)))
         sys.exit(1)
@@ -281,12 +301,35 @@ def restore_app(packages, backup_device = None):
         uid = get_app_uid(package)
         adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
 
-def list_backups():
-    print("TODO")
+def list_backups_for_device(device, packages):
+    available_packages = get_backed_up_packages(device)
+    if len(available_packages) == 0:
+        print("No backups yet")
+        return
+    for package in available_packages:
+        if len(packages) > 0 and not package in packages:
+            continue
+        print(package)
+        revisions = get_backup_revisions(device, package, offline = True)
+        for revision in revisions:
+            print("- {}".format(revision))
+
+def list_backups(device = None, packages = []):
+    if device != None:
+        list_backups_for_device(device, packages)
+        return
+    devices = get_backed_up_devices()
+    if len(devices) == 0:
+        print("No backups yet")
+        return
+    for device in devices:
+        print("Backups for device {}".format(device))
+        list_backups_for_device(device, packages)
+        print()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backup apps + data using adb (root)")
-    parser.add_argument("--device", type=str, nargs=1, metavar="SERIAL", help="Device serial (see `adb devices`)")
+    parser.add_argument("--device", type=str, nargs=1, metavar="SERIAL", help="Device serial (see `adb devices`)", default=[None])
     parser.add_argument("--backup_device", type=str, nargs=1, metavar="SERIAL", help="Device serial for the backup. Set if you want to restore a backup from a different device", default=[None])
     parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_base_path])
     parser.add_argument("--backup", action='store_const', const=True, default=False)
@@ -295,7 +338,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     backup_base_path = os.path.expanduser(args.backup_path[0])
     done_anything = False
-    if args.device != None:
+    if args.device[0] != None:
         adb_device = args.device[0]
 
     # Backup
@@ -310,4 +353,4 @@ if __name__ == "__main__":
 
     # List
     if not done_anything:
-        list_backups()
+        list_backups(args.device[0] if args.backup_device[0] == None else args.backup_device[0], args.package)
