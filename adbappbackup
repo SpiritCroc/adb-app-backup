@@ -199,7 +199,18 @@ def remote_file_from_backup_file(local_target, backup_path):
         raise Exception("Internal error")
     return local_target[len(backup_path):]
 
+def is_pushworty(local_target, exclude=[]):
+    check_cmd = ["find", local_target, "-type", "f"]
+    for exclude_target in exclude:
+        check_cmd += ["-not", "-path", "{}/{}".format(local_target, exclude_target)]
+    pushable_files = run_cmd(check_cmd).decode().split("\n")
+    # Nothing found: result = ['']
+    return len(pushable_files) > 1
+
 def adb_push_indirect(local_target, backup_path, exclude=[]):
+    if not is_pushworty(local_target, exclude):
+        print("Skip pushing {}".format(local_target))
+        return
     target = remote_file_from_backup_file(local_target, backup_path)
     device_tmp_dir = get_device_tmp_dir()
     target_base = os.path.basename(target)
