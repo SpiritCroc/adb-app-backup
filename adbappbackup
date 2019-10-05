@@ -186,6 +186,10 @@ def get_device_tmp_dir():
     global device_tmp_dir_created
     device_tmp_dir = "/sdcard/.adbappbackup"
     if not device_tmp_dir_created:
+        try:
+            adb(["shell", "rm", "-r", device_tmp_dir])
+        except:
+            pass
         adb(["shell", "mkdir", "-p", device_tmp_dir])
         device_tmp_dir_created = True
     return device_tmp_dir
@@ -200,7 +204,6 @@ def adb_push_indirect(local_target, backup_path):
     device_tmp_dir = get_device_tmp_dir()
     target_base = os.path.basename(target)
     target_dir = os.path.dirname(target)
-    # TODO clean up device_tmp_dir?
     adb(["push", local_target, device_tmp_dir])
     adb(["shell", "mv", "{}/{}".format(device_tmp_dir, target_base), target_dir])
 
