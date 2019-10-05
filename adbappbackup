@@ -199,12 +199,17 @@ def remote_file_from_backup_file(local_target, backup_path):
         raise Exception("Internal error")
     return local_target[len(backup_path):]
 
-def adb_push_indirect(local_target, backup_path):
+def adb_push_indirect(local_target, backup_path, exclude=[]):
     target = remote_file_from_backup_file(local_target, backup_path)
     device_tmp_dir = get_device_tmp_dir()
     target_base = os.path.basename(target)
     target_dir = os.path.dirname(target)
     adb(["push", local_target, device_tmp_dir])
+    for exclude_target in exclude:
+        try:
+            adb(["shell", "rm", "-r", "{}/{}/{}".format(device_tmp_dir, target_base, exclude_target)])
+        except subprocess.CalledProcessError:
+            pass
     adb(["shell", "mv", "{}/{}".format(device_tmp_dir, target_base), target_dir])
 
 def permission_ensure():
@@ -321,17 +326,9 @@ def restore_app(packages, backup_device = None, latest = False):
             except:
                 pass
             adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
-            adb_push_indirect(data, backup_path)
-            # Remove cache: might cause troubles and should not be necessary
+            # lib is there already after previous command, caches are unnecessary
+            adb_push_indirect(data, backup_path, exclude=["cache", "code_cache", "lib"])
             remote_data = remote_file_from_backup_file(data, backup_path)
-            try:
-                adb(["shell", "rm", "-r", "{}/cache".format(remote_data)])
-            except subprocess.CalledProcessError:
-                pass
-            try:
-                adb(["shell", "rm", "-r", "{}/code_cache".format(remote_data)])
-            except subprocess.CalledProcessError:
-                pass
             # Fix uid
             uid = get_app_uid(package)
             adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
