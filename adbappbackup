@@ -180,7 +180,7 @@ def adb_pull(target, backup_path):
 
 def adb_push(local_target, backup_path):
     target = remote_file_from_backup_file(local_target, backup_path)
-    adb(["push", target, "/{}".format(target)])
+    adb(["push", local_target, "/{}".format(target)])
 
 def get_device_tmp_dir():
     global device_tmp_dir_created
