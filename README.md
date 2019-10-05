@@ -10,33 +10,33 @@ Supports multiple devices and multiple backups per app.
 
 View available options
 
-`adbappbackup --help`
+`python3 adbappbackup --help`
 
 View available backups
 
-`adbappbackup`
+`python3 adbappbackup`
 
 ### Backup
 
 Backup a single app
 
-`adbappbackup --backup com.example.app`
+`python3 adbappbackup --backup com.example.app`
 
 Get a list of apps to backup
 
-`adbappbackup --list_packages > my_apps.txt`
+`python3 adbappbackup --list_packages > my_apps.txt`
 
 Backup the list of apps
 
-`adbappbackup --package_list my_apps.txt --backup`
+`python3 adbappbackup --package_list my_apps.txt --backup`
 
 
 ### Restore
 
 Restore a single app
 
-`adbappbackup --restore com.example.app`
+`python3 adbappbackup --restore com.example.app`
 
 Restore a list of apps
 
-`adbappbackup --package_list my_apps.txt --restore`
+`python3 adbappbackup --package_list my_apps.txt --restore`
