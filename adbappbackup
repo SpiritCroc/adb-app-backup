@@ -288,7 +288,7 @@ def get_installed_packages():
             result.append(get_package_from_appdata(appdata))
     return result
 
-def backup_app(packages):
+def backup_apps(packages, fail = False):
     permission_ensure()
     appdata_list = get_device_appdata_list()
     data_list = get_device_data_list()
@@ -303,11 +303,13 @@ def backup_app(packages):
             adb_pull(appdata, backup_path)
             with open("{}/package_info".format(backup_path), "wb") as pif:
                 pickle.dump(package_info, pif)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             print("Backup of {} failed".format(package), file=sys.stderr)
+            if fail:
+                raise e
             traceback.print_exc()
 
-def restore_app(packages, backup_device = None, latest = False):
+def restore_apps(packages, backup_device = None, latest = False, fail = False):
     permission_ensure()
     for package in packages:
         try:
@@ -332,8 +334,10 @@ def restore_app(packages, backup_device = None, latest = False):
             # Fix uid
             uid = get_app_uid(package)
             adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             print("Restore of {} failed".format(package), file=sys.stderr)
+            if fail:
+                raise e
             traceback.print_exc()
 
 def list_backups_for_device(device, packages):
@@ -376,6 +380,7 @@ if __name__ == "__main__":
     parser.add_argument("--backup", action='store_const', const=True, default=False)
     parser.add_argument("--restore", action='store_const', const=True, default=False)
     parser.add_argument("--latest", action='store_const', const=True, default=False, help="Automatically use the latest backup")
+    parser.add_argument("--fail", action='store_const', const=True, default=False, help="Don't continue of one backup/restore failed")
     parser.add_argument("--list_packages", action='store_const', const=True, default=False, help="Output a list of installed packages available for backup. Can be used to create lists for --package_list")
     parser.add_argument("--package_list", metavar="FILE", type=str, nargs=1, default=[None], help="Read packages from FILE")
     parser.add_argument("package", type=str, nargs='*')
@@ -398,12 +403,12 @@ if __name__ == "__main__":
 
     # Backup
     if args.backup:
-        backup_app(args.package)
+        backup_apps(args.package, fail=args.fail)
         done_anything = True
 
     # Restore
     if args.restore:
-        restore_app(args.package, args.backup_device[0], latest=args.latest)
+        restore_apps(args.package, args.backup_device[0], latest=args.latest, fail=args.fail)
         done_anything = True
 
     if args.list_packages:
