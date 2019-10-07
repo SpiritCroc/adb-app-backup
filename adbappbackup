@@ -391,6 +391,7 @@ if __name__ == "__main__":
     parser.add_argument("--backup", action='store_const', const=True, default=False)
     parser.add_argument("--restore", action='store_const', const=True, default=False)
     parser.add_argument("--latest", action='store_const', const=True, default=False, help="Automatically use the latest backup")
+    parser.add_argument("--all", action='store_const', const=True, default=False, help="Include all packages detected by --list_packages")
     parser.add_argument("--fail", action='store_const', const=True, default=False, help="Don't continue of one backup/restore failed")
     parser.add_argument("--list_packages", action='store_const', const=True, default=False, help="Output a list of installed packages available for backup. Can be used to create lists for --package_list")
     parser.add_argument("--package_list", metavar="FILE", type=str, nargs=1, default=[None], help="Read packages from FILE")
@@ -411,6 +412,10 @@ if __name__ == "__main__":
                 if len(package) == 0:
                     continue
                 args.package.append(package)
+
+    if args.all:
+        permission_ensure()
+        args.package += get_installed_packages()
 
     # Backup
     if args.backup:
