@@ -320,7 +320,7 @@ def backup_apps(packages, fail = False):
                 raise e
             traceback.print_exc()
 
-def restore_apps(packages, backup_device = None, latest = False, fail = False):
+def restore_apps(packages, backup_device = None, latest = False, fail = False, include_apk = True, include_data = True):
     permission_ensure()
     for package in packages:
         try:
@@ -328,23 +328,32 @@ def restore_apps(packages, backup_device = None, latest = False, fail = False):
                 backup_path = latest_backup_revision_path(package, backup_device)
             else:
                 backup_path = select_backup_revision_path(package, backup_device)
-            appdata_list = get_local_appdata_list(backup_path)
-            data_list = get_local_data_list(backup_path)
-            with open("{}/package_info".format(backup_path), "rb") as pif:
-                package_info = pickle.load(pif)
-            appdata = get_appdata(appdata_list, package)
-            data = get_data(data_list, package)
-            try:
-                adb(["uninstall", package])
-            except:
-                pass
-            adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
-            # lib is there already after previous command, caches are unnecessary
-            adb_push_indirect(data, backup_path, exclude=["cache", "code_cache", "lib"])
-            remote_data = remote_file_from_backup_file(data, backup_path)
-            # Fix uid
-            uid = get_app_uid(package)
-            adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
+            if include_apk:
+                with open("{}/package_info".format(backup_path), "rb") as pif:
+                    package_info = pickle.load(pif)
+                # If we do not include data, uninstall would remove present data
+                if include_data:
+                    try:
+                        adb(["uninstall", package])
+                    except:
+                        pass
+                adb(["install-multiple", "-t"] + package_info.get_apks(backup_path))
+            if include_data:
+                data_list = get_local_data_list(backup_path)
+                data = get_data(data_list, package)
+                if not include_apk:
+                    # if apk was included, data should be clean either way
+                    # TODO ensure app is not running already (freeze it?)
+                    try:
+                        adb(["shell", "rm", "-r", remote_file_from_backup_file(data, backup_path)])
+                    except subprocess.CalledProcessError:
+                        pass
+                # lib is there already after adb install, caches are unnecessary
+                adb_push_indirect(data, backup_path, exclude=["cache", "code_cache", "lib"])
+                remote_data = remote_file_from_backup_file(data, backup_path)
+                # Fix uid
+                uid = get_app_uid(package)
+                adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
         except subprocess.CalledProcessError as e:
             print("Restore of {} failed".format(package), file=sys.stderr)
             if fail:
@@ -389,7 +398,9 @@ if __name__ == "__main__":
     parser.add_argument("--backup_device", type=str, nargs=1, metavar="SERIAL", help="Device serial for the backup. Set if you want to restore a backup from a different device", default=[None])
     parser.add_argument("--backup_path", type=str, nargs=1, default=[backup_base_path])
     parser.add_argument("--backup", action='store_const', const=True, default=False)
-    parser.add_argument("--restore", action='store_const', const=True, default=False)
+    parser.add_argument("--restore", action='store_const', const=True, default=False, help="Restore given packages: app + data")
+    parser.add_argument("--restore_apk", action='store_const', const=True, default=False, help="Restore given packages: app only")
+    parser.add_argument("--restore_data", action='store_const', const=True, default=False, help="Restore given packages: data only")
     parser.add_argument("--latest", action='store_const', const=True, default=False, help="Automatically use the latest backup")
     parser.add_argument("--all", action='store_const', const=True, default=False, help="Include all packages detected by --list_packages")
     parser.add_argument("--fail", action='store_const', const=True, default=False, help="Don't continue of one backup/restore failed")
@@ -423,8 +434,10 @@ if __name__ == "__main__":
         done_anything = True
 
     # Restore
-    if args.restore:
-        restore_apps(args.package, args.backup_device[0], latest=args.latest, fail=args.fail)
+    if args.restore or args.restore_apk or args.restore_data:
+        include_apk = args.restore or args.restore_apk
+        include_data = args.restore or args.restore_data
+        restore_apps(args.package, args.backup_device[0], latest=args.latest, fail=args.fail, include_apk=include_apk, include_data=include_data)
         done_anything = True
 
     if args.list_packages:
