@@ -164,6 +164,7 @@ def load_adb_device():
     adb_device = available[selection]["serial"]
     if adb_device == None:
         raise Exception("Could not get adb device serial")
+    print("Using device {}".format(adb_device))
 
 def adb(cmd):
     global adb_transport_id
