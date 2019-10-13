@@ -323,6 +323,9 @@ def backup_apps(packages, fail = False):
 
 def restore_apps(packages, backup_device = None, latest = False, fail = False, include_apk = True, include_data = True):
     permission_ensure()
+    if include_data and not include_apk:
+        # TODO find out why - complains about permissions even though they should be fine
+        print("WARN: Restoring data only might require a device reboot for apps to function properly afterwards")
     for package in packages:
         try:
             if latest:
