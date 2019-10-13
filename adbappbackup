@@ -341,9 +341,10 @@ def restore_apps(packages, backup_device = None, latest = False, fail = False, i
             if include_data:
                 data_list = get_local_data_list(backup_path)
                 data = get_data(data_list, package)
+                # Freeze app to avoid conflicting data access
+                adb(["shell", "pm", "disable", package])
                 if not include_apk:
                     # if apk was included, data should be clean either way
-                    # TODO ensure app is not running already (freeze it?)
                     try:
                         adb(["shell", "rm", "-r", remote_file_from_backup_file(data, backup_path)])
                     except subprocess.CalledProcessError:
@@ -354,6 +355,7 @@ def restore_apps(packages, backup_device = None, latest = False, fail = False, i
                 # Fix uid
                 uid = get_app_uid(package)
                 adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
+                adb(["shell", "pm", "enable", package])
         except subprocess.CalledProcessError as e:
             print("Restore of {} failed".format(package), file=sys.stderr)
             if fail:
