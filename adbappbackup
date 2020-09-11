@@ -297,7 +297,10 @@ def get_installed_packages():
     result = []
     for appdata in appdata_list:
         if appdata != "":
-            result.append(get_package_from_appdata(appdata))
+            try:
+                result.append(get_package_from_appdata(appdata))
+            except Exception as e:
+                print("Skipped {}".format(appdata), e)
     return result
 
 def backup_apps(packages, fail = False):
