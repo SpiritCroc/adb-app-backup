@@ -264,11 +264,8 @@ def get_package_from_appdata(appdata):
     appdata = os.path.basename(appdata)
     return appdata[0:appdata.index("-")]
 
-def get_appdata(appdata_list, package):
-    for appdata in appdata_list:
-        if os.path.basename(appdata).startswith("{}-".format(package)):
-            return appdata
-    raise Exception("No app data found for {}".format(package))
+def get_appdata(package):
+    return get_dumpsys_var(package, "codePath")
 
 def get_device_data_list():
     global device_data_list
@@ -285,22 +282,22 @@ def get_data(data_list, package):
             return data
     raise Exception("No data found for {}".format(package))
 
-def get_app_uid(package):
+def get_dumpsys_var(package, var):
     dumpsys = adb(["shell", "dumpsys", "package", package]).decode()
     for line in dumpsys.split('\n'):
-        if "userId=" in line:
-            return int(line[line.index("=")+1:])
+        if f"{var}=" in line:
+            return line[line.index("=")+1:]
+
+def get_app_uid(package):
+    return int(get_dumpsys_var(package, "userId"))
 
 def get_installed_packages():
-    # That's not all installed packages, but those that we support backin up right now
-    appdata_list = get_device_appdata_list()
+    # -3: only support backing up user / third party apps for now
+    packages = adb(["shell", "cmd", "package", "list", "packages", "-3"]).decode()
     result = []
-    for appdata in appdata_list:
-        if appdata != "":
-            try:
-                result.append(get_package_from_appdata(appdata))
-            except Exception as e:
-                print("Skipped {}".format(appdata), e)
+    for package in packages.split('\n'):
+        if package.startswith("package:"):
+            result.append(package.replace("package:", ""))
     return result
 
 def backup_apps(packages, fail = False):
@@ -312,7 +309,7 @@ def backup_apps(packages, fail = False):
             backup_path = get_new_backup_revision_path(package)
             package_info = PackageInfo(package)
             package_info.collect()
-            appdata = get_appdata(appdata_list, package)
+            appdata = get_appdata(package)
             data = get_data(data_list, package)
             adb_pull(data, backup_path)
             adb_pull(appdata, backup_path)
