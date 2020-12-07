@@ -13,7 +13,6 @@ from datetime import datetime
 backup_base_path = "~/.adbappbackup"
 
 is_adb_root = False
-device_appdata_list = None
 device_data_list = None
 device_tmp_dir_created = False
 
@@ -251,15 +250,6 @@ def local_list_dir(path):
     # ls would work too, but find is more flexible and returns absolute paths
     return run_cmd(["find", path, "-maxdepth", "1", "-mindepth", "1"]).decode().split("\n")
 
-def get_device_appdata_list():
-    global device_appdata_list
-    if device_appdata_list == None:
-        device_appdata_list = adb_list_dir("/data/app/")
-    return device_appdata_list
-
-def get_local_appdata_list(backup_path):
-    return local_list_dir("{}/data/app".format(backup_path))
-
 def get_package_from_appdata(appdata):
     appdata = os.path.basename(appdata)
     return appdata[0:appdata.index("-")]
@@ -302,7 +292,6 @@ def get_installed_packages():
 
 def backup_apps(packages, fail = False):
     permission_ensure()
-    appdata_list = get_device_appdata_list()
     data_list = get_device_data_list()
     for package in packages:
         try:
