@@ -3,6 +3,7 @@
 import argparse
 import os
 import pickle
+import shutil
 import subprocess
 import sys
 import traceback
@@ -387,6 +388,32 @@ def list_backups(device = None, packages = []):
         list_backups_for_device(device, packages)
         print()
 
+def clean_backups(device, keep_count, packages):
+    if device == None:
+        devices = get_backed_up_devices()
+    else:
+        devices = [device]
+    for device in devices:
+        if len(packages) == 0:
+            dev_packages = get_backed_up_packages(device)
+        else:
+            dev_packages = packages
+        for package in dev_packages:
+            backup_path = get_backup_path(package, device, offline = True)
+            # revisions are already sorted
+            revisions = get_backup_revisions(device, package, offline = True)
+            if keep_count == 0:
+                to_keep = []
+                to_remove = revisions
+            else:
+                to_keep = revisions[-keep_count:]
+                to_remove = revisions[:-keep_count]
+            #print(f"{device}/{package}: keep {to_keep}, remove {to_remove}")
+            for remove_me in to_remove:
+                remove_path = f"{backup_path}/{remove_me}"
+                print(f"Remove {remove_path}")
+                shutil.rmtree(remove_path)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backup apps + data using adb (root)")
     parser.add_argument("--device", type=str, nargs=1, metavar="SERIAL", help="Device serial (see `adb devices`)", default=[None])
@@ -401,6 +428,7 @@ if __name__ == "__main__":
     parser.add_argument("--fail", action='store_const', const=True, default=False, help="Don't continue of one backup/restore failed")
     parser.add_argument("--list_packages", action='store_const', const=True, default=False, help="Output a list of installed packages available for backup. Can be used to create lists for --package_list")
     parser.add_argument("--package_list", metavar="FILE", type=str, nargs=1, default=[None], help="Read packages from FILE")
+    parser.add_argument("--keep", type=int, nargs=1, metavar="number", default=[-1], help="Number of old backups to keep. If not set, keep all")
     parser.add_argument("package", type=str, nargs='*')
     args = parser.parse_args()
     backup_base_path = os.path.expanduser(args.backup_path[0])
@@ -423,6 +451,15 @@ if __name__ == "__main__":
         permission_ensure()
         args.package += get_installed_packages()
 
+    # Device to be used for commands that don't care about backup_device vs device
+    prefered_backup_device = args.device[0] if args.backup_device[0] == None else args.backup_device[0]
+
+    # Clean up
+    to_keep = args.keep[0]
+    if to_keep >= 0:
+        clean_backups(prefered_backup_device, to_keep, args.package)
+        done_anything = True
+
     # Backup
     if args.backup:
         backup_apps(args.package, fail=args.fail)
@@ -441,4 +478,4 @@ if __name__ == "__main__":
 
     # List
     if not done_anything:
-        list_backups(args.device[0] if args.backup_device[0] == None else args.backup_device[0], args.package)
+        list_backups(prefered_backup_device, args.package)
