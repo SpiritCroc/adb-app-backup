@@ -227,8 +227,11 @@ def adb_push_indirect(local_target, backup_path, exclude=[]):
 def permission_ensure():
     global is_adb_root, adb_transport_id
     if not is_adb_root:
+        # Maybe just not checked yet
+        is_adb_root = "root" in adb(["shell", "whoami"]).decode().split("\n")
+    # Run adb root
+    if not is_adb_root:
         adb("root")
-        is_adb_root = True
         # Reload transport id
         adb_transport_id = None
         # adb devices -l might not see our device immediately
@@ -242,6 +245,10 @@ def permission_ensure():
         if adb_transport_id == None:
             # One final try
             load_adb_device()
+        is_adb_root = "root" in adb(["shell", "whoami"]).decode().split("\n")
+        if not is_adb_root:
+            print("Failed to gain root privileges using `adb root`!")
+            sys.exit(1)
 
 def adb_list_dir(path):
     # ls would work too, but find is more flexible and returns absolute paths
