@@ -40,3 +40,14 @@ Restore a single app
 Restore a list of apps
 
 `python3 adbappbackup --package_list my_apps.txt --restore`
+
+Restore latest app backup from a different device
+
+`python3 adbappbackup --backup_device SERIAL --restore com.app.packagename --latest`
+
+
+### Clean up old backups
+
+Delete all backups except the latest 5 for each app
+
+`python3 adbappbackup --keep 5`
