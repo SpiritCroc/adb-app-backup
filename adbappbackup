@@ -287,7 +287,10 @@ def get_dumpsys_var(package, var):
             return line[line.index("=")+1:]
 
 def get_app_uid(package):
-    return int(get_dumpsys_var(package, "userId"))
+    # Doesn't work on A14
+    #return int(get_dumpsys_var(package, "userId"))
+    # This still works on A14 - gives us the user name instead of the uid but works too
+    return adb(["shell", "stat", "-c", "%U", f"/data/user/0/{package}"]).decode().split("\n")[0]
 
 def get_installed_packages():
     # -3: only support backing up user / third party apps for now
@@ -342,6 +345,8 @@ def restore_apps(packages, backup_device = None, latest = False, fail = False, i
             if include_data:
                 data_list = get_local_data_list(backup_path)
                 data = get_data(data_list, package)
+                # Fetch uid of app to restore, so we chown data appropriately
+                uid = get_app_uid(package)
                 # Freeze app to avoid conflicting data access
                 adb(["shell", "pm", "disable", package])
                 if not include_apk:
@@ -354,7 +359,6 @@ def restore_apps(packages, backup_device = None, latest = False, fail = False, i
                 adb_push_indirect(data, backup_path, exclude=["cache", "code_cache", "lib"])
                 remote_data = remote_file_from_backup_file(data, backup_path)
                 # Fix uid
-                uid = get_app_uid(package)
                 adb(["shell", "chown", "-R", "{}:{}".format(uid, uid), remote_data])
                 adb(["shell", "pm", "enable", package])
         except subprocess.CalledProcessError as e:
